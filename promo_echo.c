@@ -23,7 +23,7 @@ struct promo_echo_user_data {
   uint8_t data[BUFSIZE];
 };
 
-int setup_accept(struct io_uring *uring, struct sockaddr_in *addr, socklen_t *paddrlen,
+static int setup_accept(struct io_uring *uring, struct sockaddr_in *addr, socklen_t *paddrlen,
 		 int s) {
   
   struct io_uring_sqe *sqe = io_uring_get_sqe(uring);
@@ -40,7 +40,7 @@ int setup_accept(struct io_uring *uring, struct sockaddr_in *addr, socklen_t *pa
   return 0;
 }
 
-int setup_recv(struct io_uring *uring, struct promo_echo_user_data *u, int flags) {
+static int setup_recv(struct io_uring *uring, struct promo_echo_user_data *u, int flags) {
   
   u->state = RECV;
   struct io_uring_sqe *sqe = io_uring_get_sqe(uring);
@@ -58,7 +58,7 @@ int setup_recv(struct io_uring *uring, struct promo_echo_user_data *u, int flags
   return 0;
 }
 
-int setup_send(struct io_uring *uring, struct promo_echo_user_data *u) {
+static int setup_send(struct io_uring *uring, struct promo_echo_user_data *u) {
   struct io_uring_sqe *sqe = io_uring_get_sqe(uring);
   if (!sqe) {
     // ToDo: graceful degradation
@@ -75,7 +75,7 @@ int setup_send(struct io_uring *uring, struct promo_echo_user_data *u) {
   return 0;
 }
 
-int setup_to(struct io_uring *uring, struct promo_echo_user_data *u) {
+static int setup_to(struct io_uring *uring, struct promo_echo_user_data *u) {
   struct __kernel_timespec ts = {
     .tv_sec = 5,
 	    .tv_nsec = 0
@@ -96,6 +96,19 @@ int setup_to(struct io_uring *uring, struct promo_echo_user_data *u) {
   return 0;
 }
 
+static int s;
+static struct io_uring ring;
+static volatile bool do_terminate = false;
+
+static void cleanup(void) {
+  shutdown(s, 2);
+  io_uring_queue_exit(&ring);
+}
+
+static void sigint(int) {
+  do_terminate = true;
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     return 1;
@@ -112,7 +125,7 @@ int main(int argc, char **argv) {
   addr.sin_port = htons(port);
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-  int s = socket(PF_INET, SOCK_STREAM, 0);
+  s = socket(PF_INET, SOCK_STREAM, 0);
   if (s < 0) {
     return 2;
   }
@@ -123,20 +136,23 @@ int main(int argc, char **argv) {
     return 4;
   }
 
-  struct io_uring ring;
-
   if (io_uring_queue_init(NENTRIES, &ring, 0) < 0) {
     return 5;
   }
+
+  signal(SIGINT, sigint);
+  atexit(cleanup);
 
   if (0 != (ret = setup_accept(&ring, &addr, &addrlen, s))) {
     return ret;
   }
   
-  while (true) {
+  while (!do_terminate) {
     struct io_uring_cqe *cqe, mycqe;
     ret = io_uring_wait_cqe(&ring, &cqe);
-    if (ret) {
+    if (-EINTR == ret) {
+      break;
+    } else if (ret) {
       //printf("wait_cqe: %d\n", ret);
       return 8;
     }
@@ -180,12 +196,12 @@ int main(int argc, char **argv) {
 	assert(false);
 	break;
       case RECV:
-	if ((ret < 0) && (ret != -EAGAIN)) {
+	if ((ret <= 0) && (ret != -EAGAIN)) {
 	  shutdown(u->fd, 2);
 	  //printf("free fd %d\n", u->fd);
 	  free(u);
-	} else if ((ret == 0) || (ret == -EAGAIN)) {
-	  // No data,
+	} else if (ret == -EAGAIN) {
+	  // no data, it is only possible if we had full buffer
 	  if (0 != (ret = setup_to(&ring, u))) {
 	    return ret;
 	  }
@@ -225,6 +241,6 @@ int main(int argc, char **argv) {
     } }
     
   }
-  
+
   return 0;
 }
