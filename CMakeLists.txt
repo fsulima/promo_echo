@@ -10,6 +10,7 @@ ExternalProject_Add (
   GIT_TAG liburing-2.3
   BUILD_IN_SOURCE 1
   CONFIGURE_COMMAND ./configure --prefix=<INSTALL_DIR>
+  BUILD_COMMAND make -C src
   )
 
 include_directories(${CMAKE_BINARY_DIR}/liburing-prefix/include)

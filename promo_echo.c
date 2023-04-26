@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <netinet/in.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "liburing.h"
 
@@ -101,7 +102,7 @@ static struct io_uring ring;
 static volatile bool do_terminate = false;
 
 static void cleanup(void) {
-  shutdown(s, 2);
+  close(s);
   io_uring_queue_exit(&ring);
 }
 
@@ -198,6 +199,7 @@ int main(int argc, char **argv) {
       case RECV:
 	if ((ret <= 0) && (ret != -EAGAIN)) {
 	  shutdown(u->fd, 2);
+	  close(u->fd);
 	  //printf("free fd %d\n", u->fd);
 	  free(u);
 	} else if (ret == -EAGAIN) {
@@ -217,6 +219,7 @@ int main(int argc, char **argv) {
       case SEND:
 	if (ret < 0) {
 	  shutdown(u->fd, 2);
+	  close(u->fd);
 	  //printf("free fd %d\n", u->fd);
 	  free(u);
 	} else {
