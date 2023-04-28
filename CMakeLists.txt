@@ -8,6 +8,7 @@ ExternalProject_Add (
   liburing
   GIT_REPOSITORY https://github.com/axboe/liburing.git
   GIT_TAG liburing-2.3
+  UPDATE_COMMAND ""
   BUILD_IN_SOURCE 1
   CONFIGURE_COMMAND ./configure --prefix=<INSTALL_DIR>
   BUILD_COMMAND make -C src
