@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(promo-echo)
+project(promo-echo LANGUAGES C)
 include(ExternalProject)
 
 # Distribution specific liburing may be quite outdated
