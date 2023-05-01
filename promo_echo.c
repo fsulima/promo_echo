@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <errno.h>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <assert.h>
 #include <stdint.h>
 #include <netinet/in.h>
@@ -17,7 +16,8 @@ struct promo_echo_user_data {
   enum {
     RECV,
     SEND,
-    TIMEOUT
+    TIMEOUT,
+    CLOSE
   } state;
   int fd;
   size_t size;
@@ -85,7 +85,7 @@ static int setup_to(struct io_uring *uring, struct promo_echo_user_data *u) {
   if (!sqe) {
     // ToDo: graceful degradation
     return 9;
-	  }
+  }
   u->state = TIMEOUT;
   io_uring_sqe_set_data(sqe, u);
   io_uring_prep_timeout(sqe, &ts, 0, IORING_TIMEOUT_ETIME_SUCCESS);
@@ -96,6 +96,24 @@ static int setup_to(struct io_uring *uring, struct promo_echo_user_data *u) {
   }
   return 0;
 }
+
+static int setup_close(struct io_uring *uring, struct promo_echo_user_data *u) {
+  struct io_uring_sqe *sqe = io_uring_get_sqe(uring);
+  if (!sqe) {
+    // ToDo: graceful degradation
+    return 9;
+  }
+  u->state = CLOSE;
+  io_uring_sqe_set_data(sqe, u);
+  io_uring_prep_close(sqe, u->fd);
+  int ret = io_uring_submit(uring);
+  if (ret != 1) {
+    // ToDo: graceful degradation
+    return 10;
+  }
+  return 0;
+}
+
 
 static int s;
 static struct io_uring ring;
@@ -131,13 +149,16 @@ int main(int argc, char **argv) {
     return 2;
   }
   if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    close(s);
     return 3;
   }
   if (listen(s, 50) < 0) {
+    close(s);
     return 4;
   }
 
   if (io_uring_queue_init(NENTRIES, &ring, 0) < 0) {
+    close(s);
     return 5;
   }
 
@@ -198,10 +219,9 @@ int main(int argc, char **argv) {
 	break;
       case RECV:
 	if ((ret <= 0) && (ret != -EAGAIN)) {
-	  shutdown(u->fd, 2);
-	  close(u->fd);
-	  //printf("free fd %d\n", u->fd);
-	  free(u);
+	  if (0 != (ret = setup_close(&ring, u))) {
+	    return ret;
+	  }
 	} else if (ret == -EAGAIN) {
 	  // no data, it is only possible if we had full buffer
 	  if (0 != (ret = setup_to(&ring, u))) {
@@ -218,10 +238,9 @@ int main(int argc, char **argv) {
 	break;
       case SEND:
 	if (ret < 0) {
-	  shutdown(u->fd, 2);
-	  close(u->fd);
-	  //printf("free fd %d\n", u->fd);
-	  free(u);
+	  if (0 != (ret = setup_close(&ring, u))) {
+	    return ret;
+	  }
 	} else {
 	  if (u->size == sizeof(u->data)) {
 	    // Buffer is full, possibly there is more data from user
@@ -239,6 +258,9 @@ int main(int argc, char **argv) {
 	if (0 != (ret = setup_recv(&ring, u, 0))) {
 	  return ret;
 	}
+	break;
+      case CLOSE:
+	free(u);
 	break;
       }
     } }
