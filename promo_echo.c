@@ -20,6 +20,7 @@ struct promo_echo_user_data {
     CLOSE
   } state;
   int fd;
+  bool nonblock_flag_set;
   size_t size;
   uint8_t data[BUFSIZE];
 };
@@ -79,7 +80,7 @@ static int setup_send(struct io_uring *uring, struct promo_echo_user_data *u) {
 static int setup_to(struct io_uring *uring, struct promo_echo_user_data *u) {
   struct __kernel_timespec ts = {
     .tv_sec = 5,
-	    .tv_nsec = 0
+    .tv_nsec = 0
   };
   struct io_uring_sqe *sqe = io_uring_get_sqe(uring);
   if (!sqe) {
@@ -186,20 +187,20 @@ int main(int argc, char **argv) {
     //  fprintf(stderr, "evt fd: %d\n", ((struct promo_echo_user_data *)io_uring_cqe_get_data(&mycqe))->fd);
     //}
     switch(io_uring_cqe_get_data64(&mycqe)) {
-    case 1:
+    case 1: {
       // accept
       int fd = mycqe.res;
       //printf("fd %d\n", fd);
       if (fd < 0) {
+	if (0 != (ret = setup_accept(&ring, &addr, &addrlen, s))) {
+	  return ret;
+	}
 	continue;
       }
-      int flags = fcntl(fd, F_GETFL, 0);
-      if (flags == -1) {
-	return 11;
-      }
-      fcntl(fd, F_SETFL, (flags | O_NONBLOCK));
+
       struct promo_echo_user_data *u = malloc(sizeof(*u));
       u->fd = fd;
+      u->nonblock_flag_set = false;
       
       if (0 != (ret = setup_accept(&ring, &addr, &addrlen, s))) {
 	return ret;
@@ -210,6 +211,7 @@ int main(int argc, char **argv) {
       }
 
       break;
+    }
     default: {
       struct promo_echo_user_data *u = io_uring_cqe_get_data(&mycqe);
       ret = mycqe.res;
@@ -244,6 +246,20 @@ int main(int argc, char **argv) {
 	} else {
 	  if (u->size == sizeof(u->data)) {
 	    // Buffer is full, possibly there is more data from user
+	    if (!u->nonblock_flag_set) {
+	      // Since it is not specified when do we have to stop receiving
+	      // we're going to assume that it is necessary to get all data from the socket
+	      // Here we have no choice but to make a system call to make socket nonblocking
+	      u->nonblock_flag_set = true;
+	      int flags = fcntl(u->fd, F_GETFL, 0);
+	      if (flags == -1) {
+		return 11;
+	      }
+	      flags = fcntl(u->fd, F_SETFL, (flags | O_NONBLOCK));
+	      if (flags == -1) {
+		return 12;
+	      }
+	    }
 	    if (0 != (ret = setup_recv(&ring, u, MSG_DONTWAIT))) {
 	      return ret;
 	    }
