@@ -25,14 +25,14 @@ struct promo_echo_user_data {
   uint8_t data[BUFSIZE];
 };
 
-static int setup_accept(struct io_uring *uring, struct sockaddr_in *addr, socklen_t *paddrlen,
+static int setup_accept(struct io_uring *uring,
 		 int s) {
   
   struct io_uring_sqe *sqe = io_uring_get_sqe(uring);
   if (!sqe) {
     return 6;
   }
-  io_uring_prep_accept(sqe, s, (struct sockaddr *)addr, paddrlen, 0);
+  io_uring_prep_accept(sqe, s, NULL, NULL, 0);
   io_uring_sqe_set_data64(sqe, 1);
   int ret = io_uring_submit(uring);
   if (ret != 1) {
@@ -166,7 +166,7 @@ int main(int argc, char **argv) {
   signal(SIGINT, sigint);
   atexit(cleanup);
 
-  if (0 != (ret = setup_accept(&ring, &addr, &addrlen, s))) {
+  if (0 != (ret = setup_accept(&ring, s))) {
     return ret;
   }
   
@@ -191,20 +191,16 @@ int main(int argc, char **argv) {
       // accept
       int fd = mycqe.res;
       //printf("fd %d\n", fd);
+      if (0 != (ret = setup_accept(&ring, s))) {
+	return ret;
+      }
       if (fd < 0) {
-	if (0 != (ret = setup_accept(&ring, &addr, &addrlen, s))) {
-	  return ret;
-	}
 	continue;
       }
 
       struct promo_echo_user_data *u = malloc(sizeof(*u));
       u->fd = fd;
       u->nonblock_flag_set = false;
-      
-      if (0 != (ret = setup_accept(&ring, &addr, &addrlen, s))) {
-	return ret;
-      }
       
       if (0 != (ret = setup_recv(&ring, u, 0))) {
 	return ret;
