@@ -216,13 +216,13 @@ int main(int argc, char **argv) {
 	assert(false);
 	break;
       case RECV:
-	if ((ret <= 0) && (ret != -EAGAIN)) {
-	  if (0 != (ret = setup_close(&ring, u))) {
-	    return ret;
-	  }
-	} else if (ret == -EAGAIN) {
+	if ((ret == -EAGAIN) || (ret == -EWOULDBLOCK)) {
 	  // no data, it is only possible if we had full buffer
 	  if (0 != (ret = setup_to(&ring, u))) {
+	    return ret;
+	  }
+	} else if (ret <= 0) {
+	  if (0 != (ret = setup_close(&ring, u))) {
 	    return ret;
 	  }
 	} else /* ret > 0 */ {
