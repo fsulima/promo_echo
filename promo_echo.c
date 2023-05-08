@@ -149,6 +149,13 @@ int main(int argc, char **argv) {
   if (s < 0) {
     return 2;
   }
+  {
+    int yes = 1;
+    if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) != 0) {
+      close(s);
+      return 13;
+    }
+  }
   if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
     close(s);
     return 3;
